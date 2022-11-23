@@ -4,6 +4,7 @@ PepeBot made by reyy
 '''
 
 import os
+import subprocess
 import json
 import random
 import asyncio
@@ -24,6 +25,10 @@ TOKEN = '' # Setting bots token
 
 bot = commands.Bot(command_prefix='=') # Setting bots command prefix
 
+guild = 0
+voice_channel = 0
+text_channel = 0
+
 # Executes when bot is booted up (ready)
 @bot.event
 async def on_ready():
@@ -37,10 +42,11 @@ async def on_ready():
     global _v_channel_id
     global _v_channel
     global _t_channel
-    _guild = bot.get_guild(902694643769176104) # PEPEBOT TEST SERVER
-    _v_channel_id = 902957500406583336
-    _v_channel = bot.get_channel(902957500406583336) # PEPEBOT TEST SERVER MUSIC VOICE CHANNEL
-    _t_channel = bot.get_channel(902694643769176107) # PEPEBOT TEST SERVER general text channel
+    _guild = bot.get_guild(guild) # SERVER
+    _v_channel = bot.get_channel(voice_channel) # MUSIC VOICE CHANNEL
+    _v_channel_id = _v_channel.id
+    _t_channel = bot.get_channel(text_channel) # general text channel
+    await _t_channel.send("Started up!")
 
 # In case someone uses command incorrectly the program doesnt stop
 @bot.event
@@ -1084,6 +1090,9 @@ async def on_raw_reaction_remove(payload):
 
 # ------------------------------
 
+owner_id = 0
+bbb_id = 0
+
 # OWNER COMMAND ONLY
 # Shuts down the bot (Takes some time for bot to log off)
 @bot.command()
@@ -1104,6 +1113,11 @@ async def shutdown(ctx):
     print('Bot logged out')
     print('--------------')
 
+@bot.command()
+async def restart(ctx):
+    if (ctx.author.id == owner_id or ctx.author.id == bbb_id):
+        await ctx.send("Restarting..")
+        subprocess.call(['sh', './restart.sh'])
 
 # -------------------------
 # Non-Bot related functions
