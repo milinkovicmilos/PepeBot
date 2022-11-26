@@ -47,6 +47,7 @@ async def on_ready():
     _v_channel_id = _v_channel.id
     _t_channel = bot.get_channel(text_channel) # general text channel
     await _t_channel.send("Started up!")
+    await restart_timer()
 
 # In case someone uses command incorrectly the program doesnt stop
 @bot.event
@@ -1123,14 +1124,35 @@ async def shutdown(ctx):
 @bot.command()
 async def restart(ctx):
     if (ctx.author.id == owner_id or ctx.author.id == bbb_id):
-        await ctx.send("Restarting..")
-        subprocess.call(['sh', './restart.sh'])
+        await restart_program()
 
 # -------------------------
 # Non-Bot related functions
 # -------------------------
 
+# Restarting the program on raspberry pi
+async def restart_program():
+    global _t_channel
+    await _t_channel.send("Restarting...")
+    subprocess.call(['sh', './restart.sh'])
+
 # Automatically restarts program every
+async def restart_timer():
+
+    # Setting the timer to restart the program every 14 days
+    regular_timer = 1209600
+    await asyncio.sleep(regular_timer)
+
+    # Setting the timer to check again in 1 hour in case bot is being used
+    using_timer = 3600
+
+    while True:
+        if playing:
+            await asyncio.sleep(using_timer)
+        else:
+            await restart_program()
+            break
+
 
 # Looking up for url of song by its name
 async def find_song(name : str):
