@@ -23,7 +23,8 @@ from youtubesearchpython.__future__ import VideosSearch # Needed to run youtubes
 
 TOKEN = '' # Setting bots token
 
-bot = commands.Bot(command_prefix='=') # Setting bots command prefix
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix='=', intents=intents) # Setting bots command prefix
 
 guild = 0
 voice_channel = 0
@@ -36,7 +37,6 @@ async def on_ready():
     print(bot.user.name)
     print(bot.user.id)
     print('------------')
-    remove_song()
     clear_queues()
     global _guild
     global _v_channel_id
@@ -69,12 +69,12 @@ async def join(ctx):
         await ctx.send('You are not in any voice channel...')
     else:
         try:
-            remove_song()
             await voice.channel.connect()
         except:
             await ctx.send('im already in voice channel')
 
 playlist_mode = False
+playing = False
 song_queue = [] # Check if you can remove this !!
 current_song_url = ''
 current_song_title = ''
@@ -112,36 +112,47 @@ def start_playing(v_client, url, title, duration):
                 print(loop_song_queue)
                 global current_song_url
                 current_song_url = ''
-                remove_song()
+                global playing
+                playing = False
                 print('Queue empty, stopping...')
 
     global current_song_url
     global current_song_title
     global current_song_duration
+    global playing
     current_song_url = url
     current_song_title = title
     current_song_duration = duration
-    remove_song()
 
+    playing = True
     print('Current song : ' + current_song_title)
     # Setting parameters to download video from youtube in webm format
     ydl_opts = {
-        'format': '249/250/251'
+        'format': 'm4a/bestaudio/best'
     }
-    # Downloading a webm video from youtube
-    with yt_dlp.YoutubeDL(ydl_opts, auto_init=True) as ydl:
-        ydl.download([url])
-    for file in os.listdir('./'):
-        if file.endswith('webm'):
-            os.rename(file, 'song.webm')
+    print("Downloading")
+    # Downloading a video from youtube if we dont already have it
+    save_name = current_song_url[current_song_url.find('=') + 1:]
+    path_to_song = "./songs/" + save_name + '.m4a'
+    if not os.path.isfile(path_to_song):
+        with yt_dlp.YoutubeDL(params=ydl_opts, auto_init=True) as ydl:
+            ydl.download([url])
 
-    v_client.play(discord.FFmpegOpusAudio('song.webm'), after=lambda e: check_queue())
+        for file in os.listdir('./'):
+            print("Check")
+            if file.endswith('m4a'):
+                os.rename(file, './songs/' + save_name + '.m4a')
+        print("Good Here")
+    
+    v_client.play(discord.FFmpegOpusAudio(path_to_song), after=lambda e: check_queue())
 
 # Makes the bot play a song or adds it to a queue if there is a song already playing
 @bot.command(aliases=['p'])
 async def play(ctx, *, search_key : str):
     global loop_queue
     global playlist_mode
+    global playing
+
     song_queue = get_song_queue()["queue"]
     voice = ctx.voice_client
     if voice is None:
@@ -175,8 +186,6 @@ async def play(ctx, *, search_key : str):
         await ctx.send('Song over 10hours and 15 mins...not playing...')
         return
 
-    # Checks if there is already a downloaded song (yt video)
-    song = os.path.isfile('song.webm')
     song_queue["urls"].append(url)
     song_queue["titles"].append(title)
     song_queue["durations"].append(duration)
@@ -188,7 +197,7 @@ async def play(ctx, *, search_key : str):
 
         add_loop_song_queue(url, title, duration)
 
-    if song: # If song is getting ready to be played (downloading) put the next one in queue
+    if playing: # If song is getting ready to be played (downloading) put the next one in queue
         await ctx.send('Song added to queue')
     else:
         print("playing first song")
@@ -419,7 +428,6 @@ async def stop(ctx):
     playlist_mode = False
     voice.stop()
     await asyncio.sleep(1) # It won't remove song if we dont wait 1 second here
-    remove_song()
     await ctx.send('Stopped looping...')
 
 
@@ -509,8 +517,7 @@ async def skip(ctx):
 @bot.command(aliases=['sto'])
 async def skipto(ctx, x : int):
     # Checks if song is being played
-    song = os.path.isfile("song.webm")
-    if not song:
+    if not playing:
         await ctx.send("Song isn't being played...")
         return
 
@@ -548,7 +555,9 @@ async def skipto(ctx, x : int):
 async def leave(ctx):
     try:
         global loop_queue
+        global playing
         loop_queue = False
+        playing = False
         clear_queues()
         print("cleared queues due to leave")
         voice = discord.utils.get(bot.voice_clients, guild=ctx.guild)
@@ -557,7 +566,6 @@ async def leave(ctx):
         await voice.disconnect()
         print("Dissconnected due to leave")
         await asyncio.sleep(0.5) # Must have so the remove_song function proceeds without errors
-        remove_song()
         print("Removed song due to leave")
         global playlist_mode
         playlist_mode = False
@@ -587,12 +595,16 @@ async def on_voice_state_update(member, before, after):
     global _v_channel
     global _t_channel
     global _v_channel_id
+
     voice = discord.utils.get(bot.voice_clients, guild=_guild)
+
     if after.channel and member.voice.channel.id == _v_channel_id:
+        if voice is None:
+            voice = await _v_channel.connect()
         user_playlist = get_playlist(member.id)
         print(user_playlist)
-        if voice is None and user_playlist is not None:
-            await play_the_playlist(_t_channel, member.name, voice, _v_channel, user_playlist)
+        if user_playlist is not None:
+            await play_the_playlist(member.name, voice, user_playlist)
 
 # Turns on or off the playlist mode
 @bot.command()
@@ -608,8 +620,7 @@ async def playlist(ctx):
             print("User tried to turn on playlist mode but the user is not in voice")
             await ctx.send('You are not in any voice channel...')
         else:
-            song = os.path.isfile("song.webm")
-            if song:
+            if playing:
                 await ctx.send("I'm already in voice channel being used...")
                 return
             # If we are already in voice channel and we want to turn on the playlist mode
@@ -632,22 +643,19 @@ async def playlist(ctx):
                     print("Connected bot to voice channel")
                 print("Should play playlist")
                 print(ctx.author.name)
-                await play_the_playlist(_t_channel, ctx.author.name, bot_voice, _v_channel, user_playlist)
+                await play_the_playlist(ctx.author.name, bot_voice, user_playlist)
                 print("Played playlist manualy")
             else:
                 await ctx.send("Can't play your playlist because its empty...to create one use -playlistadd")
 
 
 # Plays the playlist
-async def play_the_playlist(t_channel, member_name : str, voice, v_channel, u_playlist):
+async def play_the_playlist(member_name : str, voice, u_playlist):
     global playlist_mode
+    global _t_channel
     playlist_mode = True
-    remove_song()
-    try:
-        voice = await v_channel.connect() # Sets the voice client
-    except:
-        print("User is already in voice channel")
-    await t_channel.send(member_name + " has joined music voice channel...playing his playlist...")
+    
+    await _t_channel.send(member_name + " has joined music voice channel...playing his playlist...")
     write_song_queue(u_playlist) # Writes down the song queue from the users playlist
     song_queue = get_song_queue()["queue"]
     start_playing(voice, song_queue["urls"].pop(0), song_queue["titles"].pop(0), song_queue["durations"].pop(0))
@@ -655,7 +663,7 @@ async def play_the_playlist(t_channel, member_name : str, voice, v_channel, u_pl
 
     global loop_queue
     loop_queue = True
-    await t_channel.send('Looping current queue')
+    await _t_channel.send('Looping current queue')
     loop_song_queue = song_queue.copy()
     loop_song_queue["urls"].insert(0, current_song_url) # Inserts current song in the beggining of loop queue
     loop_song_queue["titles"].insert(0, current_song_title)
@@ -667,7 +675,6 @@ async def play_the_playlist(t_channel, member_name : str, voice, v_channel, u_pl
 async def copyplaylist(ctx):
     # Check if the song is already being played if it is we add all songs
     # to queue if not we play the first one and add the rest
-    song = os.path.isfile("song.webm")
     song_queue = get_song_queue()["queue"]
     loop_song_queue = get_song_queue()["loop_song_queue"]
     member_id = ctx.author.id
@@ -676,7 +683,7 @@ async def copyplaylist(ctx):
     if voice is None:
         await ctx.send("Im not connected to any voice channels...")
         return
-    if song:
+    if playing:
         for i in user_playlist["urls"]: song_queue["urls"].append(i)
         for i in user_playlist["titles"]: song_queue["titles"].append(i)
         for i in user_playlist["durations"]: song_queue["durations"].append(i)
@@ -1123,29 +1130,23 @@ async def restart(ctx):
 # Non-Bot related functions
 # -------------------------
 
+# Automatically restarts program every
+
 # Looking up for url of song by its name
 async def find_song(name : str):
     videos_search = VideosSearch(name, limit = 1)
     videos_result = await videos_search.next()
     videos_result = videos_result["result"]
-    print(videos_result)
     if videos_result == []:
         print("Didn't find a song...returning None")
         return None
     link = videos_result[0]["link"]
     title = videos_result[0]["title"]
     duration = hms_to_seconds(videos_result[0]["duration"])
+    print(link)
+    print(title)
+    print(duration)
     return(link, title, duration)
-
-# Remove song.webm from storage if it exists
-def remove_song():
-    try:
-        song_directory = os.listdir('./')
-        for item in song_directory:
-            if item.endswith('.webm'):
-                os.remove(item)
-    except:
-        print("Error in deleting song")
 
 # Converts time from string (HH:MM:SS) to seconds
 def hms_to_seconds(t : str):
@@ -1278,5 +1279,7 @@ def save_vote_data(data):
 
 process = psutil.Process(os.getpid())
 bot.run(TOKEN)
+
+print("Bot disconnected")
 
 # -------------------------
